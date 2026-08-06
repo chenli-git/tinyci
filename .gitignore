@@ -1,0 +1,12 @@
+build/
+compile_commands.json
+
+# Test data is generated: tools/make_test_scene.py then tools/bayer.py mosaic
+data/*
+!data/.gitkeep
+
+*.o
+*.a
+*.bin
+__pycache__/
+.cache/
