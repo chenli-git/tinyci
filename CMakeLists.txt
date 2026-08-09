@@ -35,3 +35,8 @@ target_compile_options(tinyci PRIVATE -O3 -Wall -Wextra)
 add_executable(bwtest bench/bwtest.cu)
 # -lineinfo lets Nsight Compute attribute stalls to specific source lines.
 target_compile_options(bwtest PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-O3 -lineinfo>)
+
+# M1: the fusion experiment -- the project's central measurement.
+add_executable(fusion bench/fusion.cu)
+target_include_directories(fusion PRIVATE include)
+target_compile_options(fusion PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-O3 -lineinfo>)
