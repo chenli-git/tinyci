@@ -44,6 +44,7 @@ void usage(const char* prog) {
         "  --white N      saturation level               (default 65535)\n"
         "  --wb R G B     white-balance gains            (default 1 1 1)\n"
         "  --exposure X   linear exposure multiplier     (default 1)\n"
+        "  --white-point X  scene luminance mapping to display white; 1 = identity\n"
         "  --mhc          Malvar-He-Cutler demosaic      (default bilinear)\n"
         "  --sigma X      unsharp radius                 (default 1.0)\n"
         "  --amount X     unsharp strength, 0 = off      (default 0)\n",
@@ -60,8 +61,9 @@ int main(int argc, char** argv) try {
 
     RawParams p;
     bool  useMHC = false;
-    float sigma  = 1.0f;
-    float amount = 0.0f;
+    float sigma      = 1.0f;
+    float amount     = 0.0f;
+    float whitePoint = 1.0f;
 
     for (int i = 3; i < argc; ++i) {
         const std::string a = argv[i];
@@ -72,6 +74,7 @@ int main(int argc, char** argv) try {
         else if (a == "--black")    { need(1); p.blackLevel = std::stof(argv[++i]); }
         else if (a == "--white")    { need(1); p.whiteLevel = std::stof(argv[++i]); }
         else if (a == "--exposure") { need(1); p.exposure   = std::stof(argv[++i]); }
+        else if (a == "--white-point") { need(1); whitePoint = std::stof(argv[++i]); }
         else if (a == "--sigma")    { need(1); sigma        = std::stof(argv[++i]); }
         else if (a == "--amount")   { need(1); amount       = std::stof(argv[++i]); }
         else if (a == "--mhc")      { useMHC = true; }
@@ -100,7 +103,7 @@ int main(int argc, char** argv) try {
     cameraToSRGB(rgb, p);
     const double tMat = t.lapMs();
 
-    toneMap(rgb, p.exposure);
+    toneMap(rgb, p.exposure, whitePoint);
     const double tTone = t.lapMs();
 
     if (amount > 0.0f) unsharpMask(rgb, sigma, amount);

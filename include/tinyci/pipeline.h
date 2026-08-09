@@ -20,9 +20,21 @@ struct RawParams {
     float wbGain[3] = {1.0f, 1.0f, 1.0f};
 
     // 3x3 row-major: camera-native RGB -> CIE XYZ (D65).
-    // Identity is a placeholder. Real cameras ship a measured matrix per
-    // illuminant, because the sensor's spectral response is not the eye's.
-    float camToXYZ[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    //
+    // A real camera ships a MEASURED matrix, and one per illuminant, because the
+    // sensor's spectral response is not the eye's. It is obtained by shooting a
+    // colour target under known light and solving for the fit.
+    //
+    // The default below is sRGB -> XYZ (D65), which is the honest profile for our
+    // *synthetic* camera: tools/bayer.py builds the mosaic by linearising an sRGB
+    // PNG, so the simulated sensor has exactly sRGB primaries. Chaining it with
+    // XYZ_TO_SRGB therefore collapses to identity and the test images round-trip.
+    // Substitute a real camera's matrix and the stage does real work.
+    float camToXYZ[9] = {
+        0.4124564f, 0.3575761f, 0.1804375f,
+        0.2126729f, 0.7151522f, 0.0721750f,
+        0.0193339f, 0.1191920f, 0.9503041f,
+    };
 
     float exposure = 1.0f;
 };
@@ -41,6 +53,7 @@ struct RawParams {
 // 1. u16 mosaic -> f32 mosaic. Black-level subtract, normalise to [0,1], apply WB.
 ImageF32 linearizeAndWhiteBalance(const ImageU16& mosaic, const RawParams& p);
 
+
 // 2. f32 mosaic (1ch) -> f32 linear camera RGB (3ch).  [NEIGHBOURHOOD -- fusion barrier]
 ImageF32 demosaicBilinear(const ImageF32& mosaic, CFAPattern cfa);
 ImageF32 demosaicMHC(const ImageF32& mosaic, CFAPattern cfa);
@@ -48,8 +61,13 @@ ImageF32 demosaicMHC(const ImageF32& mosaic, CFAPattern cfa);
 // 3. camera RGB -> linear sRGB, in place.                          [pointwise]
 void cameraToSRGB(ImageF32& rgb, const RawParams& p);
 
-// 4. Exposure, highlight handling, tone curve, in place.           [pointwise]
-void toneMap(ImageF32& rgb, float exposure);
+// 4. Exposure and tone curve, in place.                            [pointwise]
+//
+// whitePoint is the scene luminance that should read as display white. 1.0 makes
+// the curve algebraically the identity -- correct when the input is already
+// display-referred, as our synthetic test data is. Values above 1 compress real
+// highlight headroom into range.
+void toneMap(ImageF32& rgb, float exposure, float whitePoint = 1.0f);
 
 // 5. Unsharp mask, in place.        [NEIGHBOURHOOD, separable -- fusion barrier]
 void unsharpMask(ImageF32& rgb, float sigma, float amount);

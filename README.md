@@ -7,8 +7,9 @@ The goal is not "a fast image filter." It is the *architecture* that production 
 actually have: a lazily-evaluated filter graph, backward region-of-interest propagation, tiled
 evaluation under a fixed memory budget, and fusion of pointwise kernels into single GPU passes.
 
-**Status: M0 scaffold.** Builds, runs end to end, and scores itself against ground truth. Most
-pipeline stages are specified but not yet implemented — see [STATUS.md](STATUS.md).
+**Status: M0 complete.** The full host reference pipeline is implemented and validated — RAW mosaic in,
+sRGB PNG out, scored against ground truth. Next milestone is the CUDA port. See [STATUS.md](STATUS.md)
+for measurements and known gaps.
 
 ---
 
@@ -106,8 +107,25 @@ src/pipeline.cpp            The stages
 src/main.cpp                CLI driver + per-stage timing
 tools/bayer.py              Bayer synthesis and PSNR scoring
 tools/make_test_scene.py    Synthetic test chart, hostile to bilinear demosaic
+tools/make_eval_set.py      Evaluation set varying frequency and channel correlation
 bench/bwtest.cu             Peak-bandwidth benchmark
 ```
+
+## A result worth reading
+
+Malvar-He-Cutler does **not** beat bilinear on every image, and the pattern is exact:
+
+| Image | bilinear | MHC | Δ |
+|---|---|---|---|
+| luminance detail, near Nyquist | 31.93 | 40.30 | **+8.37** |
+| constant channel ratios | 33.02 | 35.17 | **+2.15** |
+| anti-correlated channels | 33.85 | 28.59 | −5.26 |
+
+MHC corrects one channel using the Laplacian of the channel measured at that site — valid only when
+luminance detail is shared across R, G and B. Where that assumption holds it wins by up to 8 dB; where
+it fails the "correction" injects error, and assumption-free bilinear degrades more gracefully.
+`tools/make_eval_set.py` varies spatial frequency and inter-channel correlation independently so the
+boundary is measured rather than assumed.
 
 ## Roadmap
 
