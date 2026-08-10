@@ -42,6 +42,16 @@ Bayer RAW (u16, CFA)
 That shape is chosen deliberately: a run of pointwise stages, a neighbourhood barrier, another run of
 pointwise stages. It is exactly the structure that makes fusion *measurable*.
 
+## Documentation
+
+| | |
+|---|---|
+| [docs/gpu-architecture.md](docs/gpu-architecture.md) | How a GPU works: execution model, memory hierarchy, coalescing, occupancy, roofline, CUDA→Metal |
+| [docs/cuda-walkthrough.md](docs/cuda-walkthrough.md) | Every CUDA construct in this repo, explained where it appears |
+| [docs/measurements.md](docs/measurements.md) | Every measured result with the reasoning behind it |
+| [docs/study-plan.md](docs/study-plan.md) | Ordered learning path, each stage with a completion test |
+| [STATUS.md](STATUS.md) | Current state, validation, known gaps |
+
 ## Build
 
 Requires WSL2 Ubuntu 24.04 (or any Linux), CUDA ≥ 12.8, GCC ≤ 13, CMake ≥ 3.22, Ninja.
