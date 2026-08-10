@@ -68,6 +68,29 @@ __device__ __forceinline__ float4 stageEncode(float4 p) {
 }
 
 // ---------------------------------------------------------------------------
+// A NOTE ON 1-D INDEXING
+//
+// Every kernel below indexes the image as a FLAT array of n pixels rather than a
+// 2-D grid. That is deliberate: these stages are pointwise, so none of them needs
+// to know where its pixel sits. Thread i reads pixel i and writes pixel i.
+//
+// 1-D is cheaper (one multiply-add and one bounds check instead of two), wastes
+// no threads rounding each row up to a block boundary, and is perfectly
+// coalesced -- consecutive threads touch consecutive float4s, so a warp covers
+// 512 contiguous bytes.
+//
+// Use 2-D when the kernel needs its coordinates: demosaic (CFA colour depends on
+// x&1 and y&1), separable blur (row/column neighbours), and anything doing
+// shared-memory tiling, where the block shape IS the tile shape.
+//
+// CAVEAT: flat indexing assumes rows are stored back-to-back. It is valid here
+// because Image<T> has stride == width*channels. Production imaging buffers --
+// MTLTexture, most Core Image backings -- align each row to a 64- or 256-byte
+// ROW PITCH, so row y starts at y*pitch. With padding, flat indexing walks into
+// the pad bytes and 2-D indexing stops being a preference.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
 // PATH A -- three separate kernels. Each one reads the whole image from DRAM and
 // writes the whole image back. The intermediates are never looked at by anyone
 // except the next kernel, yet they make a full round trip to memory.

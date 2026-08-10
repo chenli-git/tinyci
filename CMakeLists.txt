@@ -45,3 +45,8 @@ target_compile_options(fusion PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-O3 -lineinfo>)
 add_executable(experiments bench/experiments.cu)
 target_include_directories(experiments PRIVATE include)
 target_compile_options(experiments PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-O3 -lineinfo>)
+
+# CUDA demosaic: kernel to be written, verified against the M0 host reference.
+add_executable(demosaic_gpu bench/demosaic_gpu.cu)
+target_link_libraries(demosaic_gpu PRIVATE tinyci_core)
+target_compile_options(demosaic_gpu PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-O3 -lineinfo>)
