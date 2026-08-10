@@ -40,3 +40,8 @@ target_compile_options(bwtest PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-O3 -lineinfo>)
 add_executable(fusion bench/fusion.cu)
 target_include_directories(fusion PRIVATE include)
 target_compile_options(fusion PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-O3 -lineinfo>)
+
+# Teaching benchmarks: coalescing, warp divergence, precision.
+add_executable(experiments bench/experiments.cu)
+target_include_directories(experiments PRIVATE include)
+target_compile_options(experiments PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-O3 -lineinfo>)
