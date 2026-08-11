@@ -10,3 +10,6 @@ data/*
 *.bin
 __pycache__/
 .cache/
+
+# Compiled binaries built outside the CMake tree
+cuda_smooth/smooth_png
