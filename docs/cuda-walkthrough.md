@@ -340,7 +340,7 @@ call on a GPU (stack frame, register spill) costs far more than the handful of i
 `x` yields the correct parity in two's complement. The *samples* need clamping; the colour lookup does
 not.
 
-### What to write
+### The kernel
 
 ```cuda
 __global__ void kDemosaicBilinear(const float* __restrict__ mosaic, float* __restrict__ out,
@@ -348,11 +348,41 @@ __global__ void kDemosaicBilinear(const float* __restrict__ mosaic, float* __res
     const int x = blockIdx.x * blockDim.x + threadIdx.x;
     const int y = blockIdx.y * blockDim.y + threadIdx.y;
     if (x >= W || y >= H) return;
-    // write out[(y*W + x)*3 + c] for c = 0,1,2
+
+    const long long o = (static_cast<long long>(y) * W + x) * 3;
+    out[o + 0] = interpolateAtDev(mosaic, W, H, cfa, x, y, 0);
+    out[o + 1] = interpolateAtDev(mosaic, W, H, cfa, x, y, 1);
+    out[o + 2] = interpolateAtDev(mosaic, W, H, cfa, x, y, 2);
 }
 ```
 
-Two dimensions now, so **two** index computations and **two** bounds checks.
+Two dimensions, so **two** index computations and **two** bounds checks. This kernel needs its
+coordinates because the CFA colour depends on `x&1` and `y&1`; `fusion.cu` can use a flat 1-D index
+precisely because its pointwise stages never ask where they are.
+
+`long long` for the offset: 4096×3072×3 = 37.7 M fits in `int32`, but a 100 MP image at 3 channels does
+not. The cast must happen **before** the multiply — `y * W` in `int` arithmetic overflows first, and
+casting the result afterwards does not undo it.
+
+### Bit-identical requires matching operand order
+
+```cuda
+// Device -- the same order as src/pipeline.cpp, deliberately.
+return 0.25f * (sampleClamped(m, W, H, x - 1, y) +
+                sampleClamped(m, W, H, x + 1, y) +
+                sampleClamped(m, W, H, x, y + 1) +
+                sampleClamped(m, W, H, x, y - 1));
+```
+
+**Floating-point addition is not associative.** `(a+b)+c` and `a+(b+c)` can differ in the last bit.
+Summing the four neighbours in a different order from the host would produce results that differ by one
+ulp and fail an exact comparison for no algorithmic reason.
+
+Matching the order is worth the trouble: an exact match proves the port introduced no drift, which an
+approximate match cannot distinguish from a subtle bug.
+
+For the same reason, this target is compiled with `-O3 -lineinfo` and **not** `--use_fast_math`, which
+would enable reassociation and change results.
 
 The launch uses `dim3 block(32, 8)` — 256 threads shaped so a warp spans 32 consecutive `x`, which
 keeps each warp's mosaic reads contiguous along one row. `dim3 grid(...)` covers both dimensions with
@@ -365,18 +395,35 @@ Consecutive threads write consecutive pixels, but the output is 3 interleaved fl
 code, and the fix is the `float4` argument from §4 of the architecture notes: pad to RGBA and pay 25%
 more memory for aligned 16-byte stores.
 
-### Verification
+### Result
 
-The harness compares against `demosaicBilinear` from the host library and requires **`max |diff| : 0`**
-— bit-identical. Same algorithm and same arithmetic on a different machine should agree exactly; both
-compute in fp32 and do the same operations in the same order.
+```
+host (single-threaded)   259.88 ms
+cuda                       0.604 ms   333.5 GB/s
+max |diff| : 0
+```
 
-The two failure modes it diagnoses explicitly:
+333.5 GB/s is **88% of the measured 377.5 GB/s peak** — the kernel is near the memory system's limit.
 
-- **Every pixel zero** — the kernel is not running, or the TODOs are unfilled.
-- **Only green wrong** — the `horiz` case was tested before the both-axes case. Green occupies a
-  quincunx, so at any non-green site it lies on both axes at once; falling into the plain horizontal
-  branch averages 2 greens instead of 4.
+The 430× ratio should not be quoted without qualification: the host reference is single-threaded and
+scalar, written to be obviously correct rather than fast, and a multithreaded SIMD version would close
+much of the gap. The bandwidth percentage is the meaningful figure.
+
+### Why a neighbourhood kernel can appear to beat a copy kernel
+
+The GB/s here counts *logical* traffic — read the mosaic once, write three channels. Real DRAM traffic
+is lower, because neighbouring threads read overlapping mosaic samples and the cache serves most of the
+repeats. So a neighbourhood kernel can report higher effective bandwidth than `bwtest` without
+violating anything; it is doing less real DRAM work than the arithmetic implies.
+
+That gap is exactly the headroom shared-memory tiling would exploit deliberately, instead of relying on
+cache luck.
+
+### Known imperfection
+
+The output writes are 3 interleaved floats per pixel — a 12-byte stride, neither 4 nor 16. Not
+perfectly coalesced. Padding to RGBA would give aligned 16-byte stores for 25% more memory: the same
+`float3`-versus-`float4` tradeoff from §4, in your own code.
 
 ---
 

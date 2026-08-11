@@ -7,9 +7,10 @@ The goal is not "a fast image filter." It is the *architecture* that production 
 actually have: a lazily-evaluated filter graph, backward region-of-interest propagation, tiled
 evaluation under a fixed memory budget, and fusion of pointwise kernels into single GPU passes.
 
-**Status: M0 complete.** The full host reference pipeline is implemented and validated — RAW mosaic in,
-sRGB PNG out, scored against ground truth. Next milestone is the CUDA port. See [STATUS.md](STATUS.md)
-for measurements and known gaps.
+**Status: M0 complete, M1 measured.** The full host reference pipeline runs — RAW mosaic in, sRGB PNG
+out, scored against ground truth — and the CUDA work has established peak bandwidth, measured kernel
+fusion at **3.03×**, and ported the demosaic to a kernel producing **bit-identical** output at 88% of
+peak. See [STATUS.md](STATUS.md) and [docs/measurements.md](docs/measurements.md).
 
 ---
 

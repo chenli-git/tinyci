@@ -73,27 +73,41 @@ number, the reason.
 
 ---
 
-## Stage 4 — Write a kernel
+## Stage 4 — Write a kernel *(done)*
 
-Open `bench/demosaic_gpu.cu` and fill in the two TODOs.
+`bench/demosaic_gpu.cu` — `demosaicBilinear` ported to a 2-D CUDA kernel.
 
 ```bash
 ./build.sh && ./build/demosaic_gpu
 ```
 
-**Target: `max |diff| : 0`** — bit-identical to the host implementation. Same algorithm and arithmetic
-on a different machine should agree exactly.
+```
+cuda   0.604 ms   333.5 GB/s   (88% of measured peak)
+max |diff| : 0
+```
 
-This is the step that converts "I ran a GPU benchmark" into "I ported an image processing algorithm to
-the GPU and validated it against a reference." Nothing else on this list matters as much.
+**Bit-identical**, not merely close. Both sides compute in fp32 and perform the same operations in the
+same order, so exact agreement is achievable — and it proves the port introduced no algorithmic drift,
+which an approximate match cannot.
 
-Two failure modes the harness diagnoses for you:
-- **All pixels zero** — the kernel is not running, or a TODO is unfilled.
-- **Only green wrong** — the `horiz` case was tested before the both-axes case. Green occupies a
-  quincunx, so at a non-green site it lies on both axes at once.
+Three things in this kernel worth being able to explain:
 
-**Completion test.** Bit-identical output, plus a real speedup number, plus an explanation of why the
-output writes are not perfectly coalesced (3 interleaved floats = 12-byte stride).
+- **Two dimensions, two guards.** The CFA colour depends on `x&1` and `y&1`, so unlike `fusion.cu` this
+  kernel needs its coordinates. 4096×3072 does not divide evenly by 32×8, so surplus threads exist and
+  must return before touching memory.
+- **Operand order is deliberate.** Floating-point addition is not associative. The device code sums its
+  four neighbours in the same order as the host, because reordering would differ in the last bit and
+  fail the exact check for no real reason.
+- **`long long` for the output offset.** 4096×3072×3 fits in `int32`, but a 100 MP image at 3 channels
+  does not, and the cast has to happen before the multiply.
+
+**On the speedup number.** The harness prints 430× against the host, and that figure should not be
+quoted without qualification — the host reference is single-threaded and scalar, written to be
+obviously correct rather than fast. **333.5 GB/s, 88% of peak, is the number that means something.**
+
+**Known imperfection.** The output writes are 3 interleaved floats per pixel — a 12-byte stride,
+neither 4 nor 16. Not perfectly coalesced. Padding to RGBA would give aligned 16-byte stores at the
+cost of 25% more memory. Worth raising about your own code before someone else does.
 
 ---
 

@@ -80,9 +80,41 @@ __device__ __forceinline__ float sampleClamped(const float* __restrict__ m,
 __device__ __forceinline__ float interpolateAtDev(const float* __restrict__ m,
                                                   int W, int H, int cfa,
                                                   int x, int y, int c) {
-    // TODO: implement
-    (void)m; (void)W; (void)H; (void)cfa; (void)x; (void)y; (void)c;
-    return 0.0f;
+    // This site already measures c -- never estimate what you sampled.
+    if (cfaColorAtDev(cfa, x, y) == c)
+        return sampleClamped(m, W, H, x, y);
+
+    // cfaColorAtDev only reads coordinate parity, so it is valid at negative
+    // coordinates; by symmetry, (x-1) holding c implies (x+1) does too.
+    const bool horiz = cfaColorAtDev(cfa, x - 1, y) == c;
+    const bool vert  = cfaColorAtDev(cfa, x, y - 1) == c;
+
+    // BOTH axes -> green at a red/blue site. Green occupies a quincunx, so it
+    // lies N, S, E and W at once. This case MUST be tested before the plain
+    // horizontal one, or green averages 2 neighbours instead of 4.
+    //
+    // The operand order below deliberately matches the host implementation in
+    // src/pipeline.cpp. Floating-point addition is not associative, so a
+    // different summation order would give results that differ in the last bit
+    // and the bit-identical check would fail for no real reason.
+    if (horiz && vert) {
+        return 0.25f * (sampleClamped(m, W, H, x - 1, y) +
+                        sampleClamped(m, W, H, x + 1, y) +
+                        sampleClamped(m, W, H, x, y + 1) +
+                        sampleClamped(m, W, H, x, y - 1));
+    } else if (horiz) {
+        return 0.5f * (sampleClamped(m, W, H, x - 1, y) +
+                       sampleClamped(m, W, H, x + 1, y));
+    } else if (vert) {
+        return 0.5f * (sampleClamped(m, W, H, x, y - 1) +
+                       sampleClamped(m, W, H, x, y + 1));
+    } else {
+        // Neither axis -> c sits on the diagonals only.
+        return 0.25f * (sampleClamped(m, W, H, x - 1, y - 1) +
+                        sampleClamped(m, W, H, x + 1, y - 1) +
+                        sampleClamped(m, W, H, x - 1, y + 1) +
+                        sampleClamped(m, W, H, x + 1, y + 1));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -116,8 +148,27 @@ __device__ __forceinline__ float interpolateAtDev(const float* __restrict__ m,
 __global__ void kDemosaicBilinear(const float* __restrict__ mosaic,
                                   float* __restrict__ out,
                                   int W, int H, int cfa) {
-    // TODO: implement
-    (void)mosaic; (void)out; (void)W; (void)H; (void)cfa;
+    // Two dimensions, because this kernel needs its coordinates: the CFA colour
+    // depends on x&1 and y&1. fusion.cu can use a flat 1-D index precisely
+    // because its stages are pointwise and never ask where they are.
+    const int x = blockIdx.x * blockDim.x + threadIdx.x;
+    const int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    // Two guards, one per dimension. The grid is launched in whole blocks and
+    // 4096x3072 does not divide evenly by 32x8, so surplus threads exist and
+    // must return before touching memory. Writing out of bounds here would not
+    // reliably crash -- it would corrupt a neighbouring allocation, which is
+    // harder to find. compute-sanitizer catches it immediately.
+    if (x >= W || y >= H) return;
+
+    // long long, not int: 4096*3072*3 is 37.7 M which fits, but a 24 MP image
+    // at 3 channels is 72 M and a 100 MP one overflows int32 outright. The cast
+    // must happen before the multiply, not after.
+    const long long o = (static_cast<long long>(y) * W + x) * 3;
+
+    out[o + 0] = interpolateAtDev(mosaic, W, H, cfa, x, y, 0);
+    out[o + 1] = interpolateAtDev(mosaic, W, H, cfa, x, y, 1);
+    out[o + 2] = interpolateAtDev(mosaic, W, H, cfa, x, y, 2);
 }
 
 // ===========================================================================
@@ -199,7 +250,11 @@ int main() try {
     std::printf("%-26s %10s %12s\n", "path", "ms", "GB/s");
     std::printf("%-26s %10.2f %12s\n", "host (single-threaded)", msHost, "-");
     std::printf("%-26s %10.3f %12.1f\n", "cuda", msDevice, gbPerSec(bytes, msDevice));
-    std::printf("\nspeedup    : %.0fx\n", msHost / msDevice);
+    std::printf("\nspeedup    : %.0fx  <- against a SINGLE-THREADED SCALAR host reference.\n",
+                msHost / msDevice);
+    std::printf("             Not a fair CPU-vs-GPU number: a multithreaded SIMD host\n"
+                "             implementation would close much of this. Quote the GB/s\n"
+                "             figure below instead -- it is the one that means something.\n");
     std::printf("max |diff| : %.3g%s\n", maxDiff,
                 maxDiff == 0.0 ? "   <- bit-identical, correct"
                                : "   <- must be 0; see the pixel below");

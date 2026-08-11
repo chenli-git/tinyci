@@ -156,7 +156,54 @@ available precision. Choosing a format per stage is a genuine pipeline decision.
 
 ---
 
-## 6. Host pipeline baseline
+## 6. CUDA demosaic — bit-identical, 88% of peak
+
+```
+path                            ms      GB/s
+host (single-threaded)      259.88         -
+cuda                          0.604     333.5
+
+max |diff| : 0
+```
+
+4096×3072 (12.6 MP), RGGB, bilinear. The same algorithm as `demosaicBilinear` in `src/pipeline.cpp`,
+ported to a 2-D kernel with `dim3 block(32, 8)`.
+
+### Bit-identical is the real result
+
+`max |diff| : 0` — not "close", exactly equal. Both sides compute in fp32 and perform the same
+operations in the same order, so they must agree exactly.
+
+This requires care that is easy to miss: **floating-point addition is not associative**, so the device
+code sums its four neighbours in the same operand order as the host. Reordering the sum would produce
+results differing in the last bit and fail the check for no real reason. Getting an exact match is
+worth the trouble — it proves the port introduced no algorithmic drift, which an approximate match
+cannot.
+
+### The speedup number is not the interesting one
+
+430× sounds impressive and should not be quoted without qualification. The host reference is
+**single-threaded and scalar**, written to be obviously correct rather than fast. A multithreaded SIMD
+CPU implementation would close a large part of that gap.
+
+**333.5 GB/s — 88% of the measured 377.5 GB/s peak — is the number that means something.** It says the
+kernel is near the memory system's limit and there is little left to win without changing the algorithm
+or the data movement.
+
+### Why a neighbourhood kernel can appear to exceed peak
+
+The GB/s figure counts *logical* traffic: read the mosaic once, write three channels. Actual DRAM
+traffic is lower, because neighbouring threads read overlapping mosaic samples and the cache serves
+most of the repeats. A neighbourhood kernel can therefore report a higher effective bandwidth than a
+pure copy kernel, without violating anything — it is doing less real DRAM work than the arithmetic
+suggests.
+
+This is also the headroom shared-memory tiling would exploit explicitly rather than relying on cache
+luck.
+
+---
+
+## 7. Host pipeline baseline
 
 1024×768 (0.8 MP), single-threaded, σ=1.5 amount=0.8:
 
@@ -203,7 +250,7 @@ fast memory once, then let both passes read from there.
 
 ---
 
-## 7. Demosaic quality
+## 8. Demosaic quality
 
 PSNR against ground truth, border excluded. Generate the set with `python3 tools/make_eval_set.py`.
 
@@ -247,7 +294,7 @@ exchanges the R and B estimates, and when `R_true == B_true` the aggregate error
 
 ---
 
-## 8. Summary
+## 9. Summary
 
 | Effect | Measured | Mechanism |
 |---|---|---|
@@ -256,6 +303,7 @@ exchanges the R and B estimates, and when `R_true == B_true` the aggregate error
 | Warp divergence | 1.90× | Both branch paths executed serially |
 | Lost reuse (permuted) | 13.5× | Sectors fetched, one pixel used, evicted |
 | Lost contiguity (transpose) | 1.14× | L2 absorbs it — scattered but dense in aggregate |
+| CUDA demosaic | 333.5 GB/s, diff 0 | 88% of peak; bit-identical to host |
 | MHC vs bilinear | +8.4 / −5.3 dB | Depends entirely on inter-channel correlation |
 
 Three of these contradict the answer you would give from a textbook: the transpose penalty is small,

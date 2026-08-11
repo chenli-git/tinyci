@@ -1,7 +1,16 @@
 # Status
 
-Last updated: 2026-08-09. Milestone **M0 (host reference pipeline) — COMPLETE.** All six stages
-implemented and validated. Next: M1, port to CUDA.
+Last updated: 2026-08-11.
+
+**M0 (host reference pipeline) — COMPLETE.** All six stages implemented and validated.
+
+**M1 (CUDA) — the measurements are done.** Peak bandwidth established, kernel fusion measured, three
+isolating experiments run, and `demosaicBilinear` ported to a 2-D kernel producing **bit-identical**
+output at 88% of peak bandwidth. The full pipeline does not yet run on the GPU; the CUDA work lives in
+standalone benchmarks under `bench/`.
+
+**Not built:** the graph (M2), tiling (M3), shared-memory kernels (M5), streams (M6). Designed, and the
+measurements motivate them — see [docs/study-plan.md](docs/study-plan.md) §5–7.
 
 ---
 
